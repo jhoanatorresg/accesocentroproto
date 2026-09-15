@@ -46,51 +46,38 @@ export default function AdminPage() {
   useEffect(() => { fetchNextId(); }, []);
 
   useEffect(() => {
-    let pollInterval: any;
-
-    if (enrollStep === 'despertar_sensor' || enrollStep === 'primera_lectura' || enrollStep === 'segunda_lectura') {
-      pollInterval = setInterval(async () => {
-        try {
-          const res = await fetch(`${API_URL}/api/admin/enroll-status`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.estado === "esperando_dedo") {
-              if (data.lectura === 1) {
-                setEnrollStep('primera_lectura');
-                setEnrollMsg("Primera lectura exitosa. Mantén el dedo firme...");
-              }
-              if (data.lectura === 2) {
-                setEnrollStep('segunda_lectura');
-                setEnrollMsg("Retira el dedo y vuelve a colocarlo para la segunda verificación.");
-              }
-            } else if (data.estado === "completado" && data.resultado) {
-              if (data.resultado === "exito") {
-                setEnrollStep('completado');
-                setHuellaCapturada(true);
-                setEnrollMsg("Huella capturada correctamente (2 verificaciones).");
-                setFormData(f => ({ ...f, huella_id: data.huella_id?.toString() || f.huella_id }));
-                setEnrollError('');
-              } else {
-                setEnrollStep('error');
-                const msgs: Record<string, string> = {
-                  timeout: "Tiempo de espera agotado. El sensor no detectó el dedo.",
-                  error_coincidencia: "Las dos lecturas no coinciden. Intenta de nuevo.",
-                  error_guardado: "Error interno guardando la huella en el sensor.",
-                  memoria_llena: "La memoria del sensor está llena.",
-                };
-                setEnrollError(msgs[data.resultado] || "Error desconocido en el sensor biométrico.");
-                setHuellaCapturada(false);
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Error polling enroll status:", err);
-        }
-      }, 2000);
-    }
-
-    return () => { if (pollInterval) clearInterval(pollInterval); };
-  }, [enrollStep]);
+    const socket = io(API_URL);
+    socket.on("enroll_progress", (data: any) => {
+      if (data.lectura === 1) {
+        setEnrollStep('primera_lectura');
+        setEnrollMsg("Primera lectura exitosa. Mantén el dedo firme...");
+      }
+      if (data.lectura === 2) {
+        setEnrollStep('segunda_lectura');
+        setEnrollMsg("Retira el dedo y vuelve a colocarlo para la segunda verificación.");
+      }
+    });
+    socket.on("enroll_result", (data: any) => {
+      if (data.resultado === "exito") {
+        setEnrollStep('completado');
+        setHuellaCapturada(true);
+        setEnrollMsg("Huella capturada correctamente (2 verificaciones).");
+        setFormData(f => ({ ...f, huella_id: data.huella_id?.toString() || f.huella_id }));
+        setEnrollError('');
+      } else {
+        setEnrollStep('error');
+        const msgs: Record<string, string> = {
+          timeout: "Tiempo de espera agotado. El sensor no detectó el dedo.",
+          error_coincidencia: "Las dos lecturas no coinciden. Intenta de nuevo.",
+          error_guardado: "Error interno guardando la huella en el sensor.",
+          memoria_llena: "La memoria del sensor está llena.",
+        };
+        setEnrollError(msgs[data.resultado] || "Error desconocido en el sensor biométrico.");
+        setHuellaCapturada(false);
+      }
+    });
+    return () => { socket.disconnect(); };
+  }, []);
 
   const capturarHuella = async () => {
     if (!formData.nombre) {

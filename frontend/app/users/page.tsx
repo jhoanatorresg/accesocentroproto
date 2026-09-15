@@ -53,10 +53,14 @@ function UsersContent() {
   useEffect(() => { fetchUsers(); }, [searchParams]);
 
   useEffect(() => {
-    const pollInterval = setInterval(() => {
+    const socket = io(API_URL);
+    socket.on('member_deleted_confirm', () => {
       fetchUsers();
-    }, 4000);
-    return () => clearInterval(pollInterval);
+    });
+    socket.on('enroll_result', () => {
+      fetchUsers();
+    });
+    return () => { socket.disconnect(); };
   }, [searchParams]);
 
   const deleteUser = async (id: number) => {

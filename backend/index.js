@@ -39,7 +39,7 @@ const authenticateAdmin = (req, res, next) => {
 
   const token = authHeader.split(' ')[1];
   try {
-    const secret = process.env.JWT_SECRET || 'secret-secreto-super-tnt-gym';
+    const secret = process.env.JWT_SECRET || 'secret-secreto-super-acceso-centro';
     const decoded = jwt.verify(token, secret);
     req.admin = decoded;
     next();
@@ -441,9 +441,9 @@ app.get('/api/users', async (req, res) => {
   try {
     const { filter, hour } = req.query;
 
-    // Si no tenemos DATABASE_URL configurada en Vercel, usamos el cliente fallback HTTP de Supabase
-    if (!process.env.DATABASE_URL) {
-      console.log("⚠️ DATABASE_URL no encontrada en Vercel. Usando REST API fallback para Supabase...");
+    // Si no tenemos DATABASE_URL configurada o es local (SQLite), usamos el cliente fallback HTTP de Supabase
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.startsWith('file:')) {
+      console.log("⚠️ DATABASE_URL no encontrada o local (SQLite). Usando REST API fallback para Supabase...");
       const fallbackUsers = await dbSync.fetchUsersFallback();
       if (fallbackUsers) {
         let filtered = fallbackUsers;
@@ -504,7 +504,7 @@ app.post('/api/admin/login', async (req, res) => {
       if (passwordMatch) {
         const token = jwt.sign(
           { id: admin.id, username: admin.username },
-          process.env.JWT_SECRET || 'secret-secreto-super-tnt-gym',
+          process.env.JWT_SECRET || 'secret-secreto-super-acceso-centro',
           { expiresIn: '24h' }
         );
 
@@ -547,8 +547,8 @@ app.post('/api/users', authenticateAdmin, async (req, res) => {
   try {
     const { cedula, nombre, telefono, huella_id } = req.body;
 
-    if (!process.env.DATABASE_URL) {
-      console.log("⚠️ DATABASE_URL no encontrada. Registrando usuario via REST fallback...");
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.startsWith('file:')) {
+      console.log("⚠️ DATABASE_URL no encontrada o local (SQLite). Registrando usuario via REST fallback...");
       const nuevoUsuario = await dbSync.createUserFallback({
         cedula,
         nombre,
@@ -601,8 +601,8 @@ app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!process.env.DATABASE_URL) {
-      console.log("⚠️ DATABASE_URL no encontrada. Eliminando usuario via REST fallback...");
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.startsWith('file:')) {
+      console.log("⚠️ DATABASE_URL no encontrada o local (SQLite). Eliminando usuario via REST fallback...");
       await dbSync.deleteUserFallback(parseInt(id));
       return res.json({ success: true, message: 'Usuario eliminado de la base de datos (REST fallback)' });
     }

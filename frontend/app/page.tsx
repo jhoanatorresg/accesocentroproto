@@ -47,13 +47,20 @@ export default function Dashboard() {
     fetchStats();
     fetchTodayAccesses();
  
-    // Polling cada 3 segundos
-    const pollInterval = setInterval(() => {
+    const socket = io(API_URL);
+    socket.on('access_event', (data: AccessEvent) => {
+      setEvents((prev) => [data, ...prev].slice(0, 15));
+      fetchStats();
+    });
+    socket.on('device_status', () => {
+      fetchStats();
+    });
+    socket.on('member_deleted_confirm', () => {
       fetchStats();
       fetchTodayAccesses();
-    }, 3000);
+    });
 
-    return () => { clearInterval(pollInterval); };
+    return () => { socket.disconnect(); };
   }, []);
 
   const openDoor = () =>
