@@ -130,6 +130,9 @@ mqttClient.on('message', async (topic, message) => {
           lectura: payload.lectura || 1,
           resultado: null,
           huella_id: payload.huella_id || null,
+          postura: payload.postura || null,
+          paso: payload.paso || 0,
+          verificacion: payload.verificacion || 0,
           timestamp: Date.now()
         };
         io.emit('enroll_progress', payload);
@@ -175,18 +178,25 @@ mqttClient.on('message', async (topic, message) => {
       }
 
       // Resultados de enrolamiento
-      if (['enrolado', 'timeout', 'error_coincidencia', 'error_guardado', 'memoria_llena'].includes(payload.resultado)) {
+      if (['enrolado', 'timeout', 'error_coincidencia', 'error_guardado', 'memoria_llena', 'sensor_desconectado'].includes(payload.resultado)) {
         console.log(`🔑 Resultado enrolamiento:`, payload.resultado);
         currentEnrollStatus = {
           estado: "completado",
           lectura: 0,
           resultado: payload.resultado === 'enrolado' ? 'exito' : payload.resultado,
           huella_id: payload.huella_id,
+          postura: payload.postura || null,
+          paso: payload.paso || 0,
+          verificacion: payload.verificacion || 0,
           timestamp: Date.now()
         };
         io.emit('enroll_result', {
           resultado: payload.resultado === 'enrolado' ? 'exito' : payload.resultado,
-          huella_id: payload.huella_id
+          huella_id: payload.huella_id,
+          postura: payload.postura || null,
+          paso: payload.paso || 0,
+          verificacion: payload.verificacion || 0,
+          mensaje: payload.mensaje || ''
         });
         return;
       }
@@ -298,20 +308,35 @@ app.post('/api/webhook/acceso', async (req, res) => {
         lectura: payload.lectura || 1,
         resultado: null,
         huella_id: payload.huella_id || null,
+        postura: payload.postura || null,
+        paso: payload.paso || 0,
+        verificacion: payload.verificacion || 0,
         timestamp: Date.now()
       };
+      io.emit('enroll_progress', payload);
       return res.json({ success: true });
     }
 
     // Enrolamiento completado
-    if (['enrolado', 'timeout', 'error_coincidencia', 'error_guardado', 'memoria_llena'].includes(payload.resultado)) {
+    if (['enrolado', 'timeout', 'error_coincidencia', 'error_guardado', 'memoria_llena', 'sensor_desconectado'].includes(payload.resultado)) {
       currentEnrollStatus = {
         estado: "completado",
         lectura: 0,
         resultado: payload.resultado === 'enrolado' ? 'exito' : payload.resultado,
         huella_id: payload.huella_id,
+        postura: payload.postura || null,
+        paso: payload.paso || 0,
+        verificacion: payload.verificacion || 0,
         timestamp: Date.now()
       };
+      io.emit('enroll_result', {
+        resultado: payload.resultado === 'enrolado' ? 'exito' : payload.resultado,
+        huella_id: payload.huella_id,
+        postura: payload.postura || null,
+        paso: payload.paso || 0,
+        verificacion: payload.verificacion || 0,
+        mensaje: payload.mensaje || ''
+      });
       return res.json({ success: true });
     }
 
@@ -489,6 +514,62 @@ app.get('/api/users', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// Detalles completos de un usuario: datos personales + huella + accesos + información del dispositivo
+app.get('/api/users/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
+
+    const user = await prisma.usuario.findUnique({
+      where: { id }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // No usamos take: 15: la pestaña Detalles debe poder consultar todo el historial disponible.
+    const accesos = await prisma.acceso.findMany({
+      where: { usuario_id: id },
+      orderBy: { timestamp: 'desc' }
+    });
+
+    // Buscamos los dispositivos por separado para no depender de que el nombre
+    // de la relación Prisma sea "dispositivo".
+    const deviceIds = [...new Set(
+      accesos.map(a => a.dispositivo_id).filter(Boolean)
+    )];
+
+    const dispositivos = deviceIds.length
+      ? await prisma.dispositivo.findMany({
+          where: { id: { in: deviceIds } }
+        })
+      : [];
+
+    const deviceMap = new Map(dispositivos.map(d => [d.id, d]));
+
+    const accesosConDispositivo = accesos.map(a => ({
+      ...a,
+      dispositivo: deviceMap.get(a.dispositivo_id) || {
+        id: a.dispositivo_id,
+        nombre: a.dispositivo_id,
+        estado: 'desconocido'
+      }
+    }));
+
+    res.json({
+      ...user,
+      accesos: accesosConDispositivo,
+      total_accesos: accesosConDispositivo.length
+    });
+  } catch (error) {
+    console.error('Error obteniendo detalles del usuario:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Compatibilidad con frontend (redireccionar /api/members a /api/users)
 app.get('/api/members', async (req, res) => {
   res.redirect(307, '/api/users' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''));
@@ -587,13 +668,28 @@ app.get('/api/admin/enroll-status', authenticateAdmin, (req, res) => {
 app.post('/api/devices/:id/enroll', authenticateAdmin, async (req, res) => {
   const { id } = req.params;
   const { huella_id } = req.body;
+  if (!huella_id || !Number.isInteger(parseInt(huella_id))) {
+    return res.status(400).json({ success: false, error: 'huella_id inválido' });
+  }
+
+  currentEnrollStatus = {
+    estado: 'iniciando',
+    lectura: 0,
+    resultado: null,
+    huella_id: parseInt(huella_id),
+    postura: null,
+    paso: 0,
+    verificacion: 0,
+    timestamp: Date.now()
+  };
+
   await publishMqtt('centro/comando', JSON.stringify({
-    cmd:       'enrolar',
+    cmd:        'enrolar',
     huella_id: parseInt(huella_id),
     dispositivo: id
   }));
-  console.log(`📤 Comando ENROLAR huella #${huella_id} enviado a: ${id}`);
-  res.json({ success: true, message: 'Comando enrolar enviado.' });
+  console.log(`📤 Comando ENROLAR 360 huella #${huella_id} enviado a: ${id}`);
+  res.json({ success: true, message: 'Comando enrolar 360 enviado.' });
 });
 
 // Eliminar usuario (envía comando MQTT al sensor, espera confirmación)
@@ -685,7 +781,7 @@ app.delete('/api/free-huella/:huellaId', authenticateAdmin, async (req, res) => 
 // ─────────────────────────────────────────────────────
 
 // Exportar accesos anteriores a una fecha (CSV-ready JSON)
-app.get('/api/accesses/export', async (req, res) => {
+app.get('/api/accesses/export', authenticateAdmin, async (req, res) => {
   try {
     const { before } = req.query;
     if (!before) return res.status(400).json({ error: 'Parámetro before (ISO date) requerido' });
