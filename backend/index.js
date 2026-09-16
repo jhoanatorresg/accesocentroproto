@@ -801,7 +801,7 @@ app.post('/api/cleanup', authenticateAdmin, async (req, res) => {
 });
 
 // Siguiente ID de huella disponible (reciclado o nuevo)
-app.get('/api/next-huella-id', authenticateAdmin, async (req, res) => {
+app.get('/api/next-huella-id', async (req, res) => {
   try {
     const recycled = await prisma.huellaDisponible.findFirst({ orderBy: { huella_id: 'asc' } });
     if (recycled) {

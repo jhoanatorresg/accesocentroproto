@@ -21,7 +21,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     fetch(`${API_URL}/api/plans`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) return [];
+        return r.json();
+      })
       .then(data => setPlans(Array.isArray(data) ? data : []))
       .catch(() => setPlans([{ id: 1, nombre: 'Semanal' }, { id: 2, nombre: 'Quincenal' }, { id: 3, nombre: 'Mensual' }]));
   }, []);
@@ -37,10 +40,16 @@ export default function AdminPage() {
 
   const fetchNextId = () => {
     fetch(`${API_URL}/api/next-huella-id`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) return null;
+        return r.json();
+      })
       .then(data => {
-        setFormData(f => ({ ...f, huella_id: data.huella_id.toString() }));
-      });
+        if (data && data.huella_id !== undefined && data.huella_id !== null) {
+          setFormData(f => ({ ...f, huella_id: data.huella_id.toString() }));
+        }
+      })
+      .catch(err => console.error("Error fetching next huella id:", err));
   };
 
   useEffect(() => { fetchNextId(); }, []);

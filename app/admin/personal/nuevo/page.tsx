@@ -22,6 +22,8 @@ export default function NuevoPersonal() {
   const [huellaId,      setHuellaId]      = useState<number | null>(null);
   const [isSensorActive, setIsSensorActive] = useState(false);
   const [enrollStatus,  setEnrollStatus]  = useState("Inactivo");
+  const [postura360,    setPostura360]    = useState<{ lectura: number; postura: string; mensaje: string } | null>(null);
+  const [sensorOnline,  setSensorOnline]  = useState<boolean | null>(null);
   const [error,         setError]         = useState("");
   const [success,       setSuccess]       = useState(false);
 
@@ -30,33 +32,44 @@ export default function NuevoPersonal() {
 
     const socket = io(API_URL);
 
-    socket.on("enroll_progress", (data) => {
-      setIsSensorActive(true);
-      if (data.lectura === 1) setEnrollStatus("Mantenga su dedo firme sobre el sensor hasta que el LED confirme la lectura.");
-      if (data.lectura === 2) setEnrollStatus("Retire el dedo y vuelva a colocarlo para la segunda verificación.");
+    socket.on("device_status", (data: any) => {
+      if (data && data.sensor_conectado !== undefined) {
+        setSensorOnline(data.sensor_conectado);
+      }
     });
 
-    fetch(`${API_URL}/api/plans`)
-      .then(r => r.json())
-      .then(data => setPlans(Array.isArray(data) ? data : []))
-      .catch(() => setPlans([{ id: 1, nombre: 'Semanal' }, { id: 2, nombre: 'Quincenal' }, { id: 3, nombre: 'Mensual' }]));
+    socket.on("enroll_progress", (data: any) => {
+      setIsSensorActive(true);
+      if (data.postura || data.mensaje) {
+        setPostura360({
+          lectura: data.lectura || 1,
+          postura: data.postura || 'centro',
+          mensaje: data.mensaje || 'Alinea tu dedo sobre el sensor [SFM-V1.7]'
+        });
+        setEnrollStatus(data.mensaje);
+      } else {
+        if (data.lectura === 1) setEnrollStatus("Paso 1/2: Centra tu dedo en el sensor [SFM-V1.7] (Giro 360°)");
+        if (data.lectura === 2) setEnrollStatus("Paso 2/2: Retira el dedo y vuelve a colocarlo para consolidar 360°");
+      }
+    });
 
     socket.on("enroll_result", (data) => {
+      setIsSensorActive(false);
+      setPostura360(null);
       if (data.resultado === "exito") {
         setHuellaId(data.huella_id);
-        setIsSensorActive(false);
         setEnrollStatus("Completado");
         setError("");
       } else {
-        setIsSensorActive(false);
         setEnrollStatus("Inactivo");
         const msgs: Record<string, string> = {
-          timeout:           "Tiempo de espera agotado. El sensor no detectó el dedo.",
-          error_coincidencia: "Las dos lecturas no coinciden. Intenta de nuevo.",
-          error_guardado:     "Error interno guardando la huella en el sensor.",
+          sensor_desconectado: "❌ El sensor físico [SFM-V1.7] está DESCONECTADO o no responde en el hardware.",
+          timeout:            "Tiempo de espera agotado. El sensor no detectó el dedo.",
+          error_coincidencia: "Las dos lecturas 360° no coinciden. Intenta de nuevo.",
+          error_guardado:     "Error interno guardando la huella en el sensor [SFM-V1.7].",
           memoria_llena:      "La memoria del sensor está llena.",
         };
-        setError(msgs[data.resultado] || "Error desconocido en el sensor biométrico.");
+        setError(msgs[data.resultado] || "Error desconocido en el sensor biométrico [SFM-V1.7].");
       }
     });
 
@@ -179,17 +192,12 @@ export default function NuevoPersonal() {
               </div>
             </div>
 
-            {/* Plan */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-300">Plan de Acceso</label>
-              <div className="relative">
-                <select value={planId} onChange={e => setPlanId(e.target.value)}
-                  className="w-full pl-10 pr-3 py-3 border border-slate-700 bg-slate-950 rounded-xl text-white focus:ring-2 focus:ring-blue-500 transition-all outline-none appearance-none cursor-pointer">
-                  {plans.map(p => (
-                    <option key={p.id} value={p.id} className="bg-slate-950">{p.nombre}</option>
-                  ))}
-                </select>
-                <Calendar className="absolute right-3 top-3 h-5 w-5 text-slate-500 pointer-events-none" />
+            {/* Política de Permanencia (Sin Planes de Acceso) */}
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Acceso Permanente</p>
+                <p className="text-xs text-slate-400 mt-0.5">El usuario permanecerá activo en la base de datos hasta que sea eliminado manualmente.</p>
               </div>
             </div>
 
@@ -211,22 +219,27 @@ export default function NuevoPersonal() {
         <div className="w-full md:w-80 flex flex-col gap-6">
           <div className="bg-card border border-border rounded-3xl p-8 flex flex-col items-center justify-center min-h-[340px] relative overflow-hidden shadow-xl">
 
-            {isSensorActive && <div className="absolute inset-0 bg-blue-500/5 animate-pulse" />}
+            {isSensorActive && <div className="absolute inset-0 bg-cyan-500/5 animate-pulse" />}
 
-            {isSensorActive && enrollStatus !== "Despertando sensor..." && (
-              <div className="absolute inset-0 bg-card/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-center fade-in">
-                <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                  <Fingerprint className="w-10 h-10 text-primary" />
+            {isSensorActive && (
+              <div className="absolute inset-0 bg-card/95 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-20 h-20 bg-cyan-500/20 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                  <Fingerprint className="w-10 h-10 text-cyan-400" />
                 </div>
-                <h3 className="text-2xl font-bold mb-2">¡Atención!</h3>
-                <p className="text-lg text-primary font-medium">{enrollStatus}</p>
-                <p className="text-sm text-muted-foreground mt-4">Sigue las instrucciones en pantalla.</p>
+                <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400 mb-1">Captura 360° [SFM-V1.7]</span>
+                <h3 className="text-xl font-bold mb-2">Toma Biométrico</h3>
+                <p className="text-sm text-cyan-300 font-medium">{enrollStatus}</p>
+                {postura360 && (
+                  <span className="mt-3 px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-xs font-black uppercase tracking-wider">
+                    Posición: {postura360.postura} (Verificación {postura360.lectura}/2)
+                  </span>
+                )}
               </div>
             )}
 
-            <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 transition-all duration-500 z-10 ${
+            <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-4 transition-all duration-500 z-10 ${
               huellaId !== null ? "bg-emerald-500/20 text-emerald-400"
-              : isSensorActive  ? "bg-blue-500/20 text-blue-400 animate-pulse"
+              : isSensorActive  ? "bg-cyan-500/20 text-cyan-400 animate-pulse"
               : "bg-slate-800 text-slate-500"
             }`}>
               {huellaId !== null ? <Fingerprint className="w-12 h-12" />
@@ -234,15 +247,22 @@ export default function NuevoPersonal() {
                : <Fingerprint className="w-12 h-12" />}
             </div>
 
-            <h3 className="text-xl font-bold text-white mb-2 z-10">Sensor de Huella</h3>
+            <h3 className="text-lg font-bold text-white mb-1 z-10">Sensor [SFM-V1.7]</h3>
+            {sensorOnline !== null && (
+              <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full mb-3 z-10 ${
+                sensorOnline ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+              }`}>
+                {sensorOnline ? 'Sensor Conectado' : 'Sensor Desconectado'}
+              </span>
+            )}
 
-            <div className="text-center mb-8 z-10 min-h-[60px]">
+            <div className="text-center mb-6 z-10 min-h-[50px]">
               {huellaId !== null ? (
-                <p className="text-emerald-400 font-medium">¡Huella ID #{huellaId} capturada!</p>
+                <p className="text-emerald-400 font-medium text-sm">¡Huella ID #{huellaId} capturada 360°!</p>
               ) : isSensorActive ? (
-                <p className="text-blue-400 font-medium">{enrollStatus}</p>
+                <p className="text-cyan-400 font-medium text-sm">{enrollStatus}</p>
               ) : (
-                <p className="text-slate-400 text-sm">Vincula la huella biométrica<br />para permitir el acceso</p>
+                <p className="text-slate-400 text-xs">2 verificaciones 360°<br />(Centro, Derecho, Izquierdo)</p>
               )}
             </div>
 
