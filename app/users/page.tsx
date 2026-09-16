@@ -36,6 +36,9 @@ function UsersContent() {
   const [message,     setMessage]     = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
   const fetchUsers = () => {
     const filter = searchParams.get("filter");
     const hour   = searchParams.get("hour");
@@ -48,6 +51,25 @@ function UsersContent() {
       .then(r => r.json())
       .then(data => setUsers(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error cargando usuarios:", err));
+  };
+
+  const openUserDetails = async (id: number) => {
+    setLoadingDetails(true);
+    try {
+      const res = await fetch(`${API_URL}/api/users/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedUser(data);
+      } else {
+        const fallback = users.find(u => u.id === id);
+        if (fallback) setSelectedUser({ ...fallback, accesos: [] });
+      }
+    } catch {
+      const fallback = users.find(u => u.id === id);
+      if (fallback) setSelectedUser({ ...fallback, accesos: [] });
+    } finally {
+      setLoadingDetails(false);
+    }
   };
 
   useEffect(() => { fetchUsers(); }, [searchParams]);
@@ -192,21 +214,10 @@ function UsersContent() {
                             <span className="text-xs font-bold">Ingreso: {new Date(u.fecha_registro).toLocaleDateString('es-CO')}</span>
                           </div>
                         )}
-                        {u.membership_end_date && (
-                          <div className="flex items-center gap-3 text-slate-500">
-                            <Clock size={14} className="text-slate-600" />
-                            <span className="text-xs font-bold">Vence: {new Date(u.membership_end_date).toLocaleDateString('es-CO')}</span>
-                          </div>
-                        )}
-                        {u.plan && (
-                          <div className="flex items-center gap-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                              u.estado === 'activo' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                            }`}>
-                              {u.plan.nombre}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-3 text-emerald-400">
+                          <CheckCircle2 size={14} />
+                          <span className="text-[11px] font-bold">Permanente en Base de Datos</span>
+                        </div>
                     </div>
                   </div>
 
@@ -219,7 +230,10 @@ function UsersContent() {
                         {deletingIds.has(u.id) ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
                     </button>
                     
-                    <button className="flex items-center gap-2 text-xs font-black text-slate-400 hover:text-white transition-colors uppercase tracking-widest">
+                    <button 
+                      onClick={() => openUserDetails(u.id)}
+                      className="flex items-center gap-2 text-xs font-black text-slate-400 hover:text-cyan-400 transition-colors uppercase tracking-widest"
+                    >
                         Ver Detalles
                         <ChevronRight size={14} />
                     </button>
@@ -243,6 +257,94 @@ function UsersContent() {
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mt-1">Acceso Biométrico</p>
         </button>
       </div>
+
+      {/* Modal Ver Detalles */}
+      {selectedUser && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0d121b] border border-white/10 rounded-[2.5rem] max-w-2xl w-full p-8 relative max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => setSelectedUser(null)}
+              className="absolute top-6 right-6 p-2 rounded-full bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-2xl font-black">
+                {selectedUser.nombre?.charAt(0) || 'U'}
+              </div>
+              <div>
+                <h3 className="text-2xl font-black text-white">{selectedUser.nombre}</h3>
+                <p className="text-slate-400 text-sm font-medium">{selectedUser.rol || 'Personal Registrado'}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
+              <div className="bg-white/5 p-4 rounded-2xl">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-black">Cédula</p>
+                <p className="text-white font-bold text-sm mt-1">{selectedUser.cedula || 'N/A'}</p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-2xl">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-black">Teléfono</p>
+                <p className="text-white font-bold text-sm mt-1">{selectedUser.telefono || 'N/A'}</p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-2xl">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-black">ID Huella</p>
+                <p className="text-cyan-400 font-black text-sm mt-1">#{selectedUser.huella_id}</p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-2xl">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-black">Estado</p>
+                <p className="text-emerald-400 font-bold text-sm mt-1 capitalize">{selectedUser.estado || 'activo'}</p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-2xl">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-black">Fecha Registro</p>
+                <p className="text-white font-bold text-sm mt-1">
+                  {selectedUser.fecha_registro ? new Date(selectedUser.fecha_registro).toLocaleDateString('es-CO') : 'Reciente'}
+                </p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-2xl">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-black">Permanencia</p>
+                <p className="text-emerald-400 font-bold text-sm mt-1">Indefinida</p>
+              </div>
+            </div>
+
+            <div className="border-t border-white/5 pt-6">
+              <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Clock size={16} className="text-cyan-400" />
+                Historial de Accesos Recientes
+              </h4>
+
+              {selectedUser.accesos && selectedUser.accesos.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                  {selectedUser.accesos.map((acc: any) => (
+                    <div key={acc.id} className="bg-white/[0.02] border border-white/5 p-3 rounded-xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-2 h-2 rounded-full ${acc.resultado === 'permitido' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                        <span className="text-xs font-bold text-white uppercase">{acc.resultado}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-slate-400">
+                        {acc.confianza ? <span>Conf: {acc.confianza}%</span> : null}
+                        <span>{new Date(acc.timestamp).toLocaleString('es-CO')}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 font-medium py-4 text-center">No hay registros de acceso recientes para este usuario.</p>
+              )}
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-white/5 flex justify-end">
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

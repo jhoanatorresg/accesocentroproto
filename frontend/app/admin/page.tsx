@@ -50,29 +50,30 @@ export default function AdminPage() {
     socket.on("enroll_progress", (data: any) => {
       if (data.lectura === 1) {
         setEnrollStep('primera_lectura');
-        setEnrollMsg("Primera lectura exitosa. Mantén el dedo firme...");
+        setEnrollMsg(data.mensaje || "Verificación 1/2: Centra tu dedo en el sensor [SFM-V1.7] (toma 360°)");
       }
       if (data.lectura === 2) {
         setEnrollStep('segunda_lectura');
-        setEnrollMsg("Retira el dedo y vuelve a colocarlo para la segunda verificación.");
+        setEnrollMsg(data.mensaje || "Verificación 2/2: Retira el dedo y vuelve a colocarlo para consolidar 360°.");
       }
     });
     socket.on("enroll_result", (data: any) => {
       if (data.resultado === "exito") {
         setEnrollStep('completado');
         setHuellaCapturada(true);
-        setEnrollMsg("Huella capturada correctamente (2 verificaciones).");
+        setEnrollMsg("Huella capturada correctamente en [SFM-V1.7] (2 verificaciones 360° completadas).");
         setFormData(f => ({ ...f, huella_id: data.huella_id?.toString() || f.huella_id }));
         setEnrollError('');
       } else {
         setEnrollStep('error');
         const msgs: Record<string, string> = {
+          sensor_desconectado: "❌ El sensor físico [SFM-V1.7] está DESCONECTADO o no responde en el hardware.",
           timeout: "Tiempo de espera agotado. El sensor no detectó el dedo.",
-          error_coincidencia: "Las dos lecturas no coinciden. Intenta de nuevo.",
-          error_guardado: "Error interno guardando la huella en el sensor.",
-          memoria_llena: "La memoria del sensor está llena.",
+          error_coincidencia: "Las dos lecturas 360° no coinciden. Intenta de nuevo.",
+          error_guardado: "Error interno guardando la huella en el sensor [SFM-V1.7].",
+          memoria_llena: "La memoria del sensor [SFM-V1.7] está llena.",
         };
-        setEnrollError(msgs[data.resultado] || "Error desconocido en el sensor biométrico.");
+        setEnrollError(msgs[data.resultado] || "Error desconocido en el sensor biométrico [SFM-V1.7].");
         setHuellaCapturada(false);
       }
     });
@@ -205,15 +206,11 @@ export default function AdminPage() {
                   </div>
                 </div>
                 <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-1">Plan de Acceso</label>
-                  <select
-                    value={formData.plan_id} onChange={e => setFormData({ ...formData, plan_id: e.target.value })}
-                    className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 px-6 text-white outline-none focus:border-cyan-500/30 transition-all font-medium appearance-none cursor-pointer"
-                  >
-                    {plans.map(p => (
-                      <option key={p.id} value={p.id} className="bg-[#0d121b]">{p.nombre}</option>
-                    ))}
-                  </select>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-1">Permanencia</label>
+                  <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-2xl py-4 px-6 text-emerald-400 font-bold text-xs flex items-center gap-2">
+                    <CheckCircle2 size={16} />
+                    <span>Permanente en Base de Datos</span>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 ml-1">ID Huella (Automático)</label>

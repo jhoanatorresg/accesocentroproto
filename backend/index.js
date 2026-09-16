@@ -30,6 +30,15 @@ let currentEnrollStatus = {
   timestamp: Date.now()
 };
 
+// Estado real del sensor de hardware [SFM-V1.7]
+let currentHardwareStatus = {
+  online: false,
+  dispositivo: 'esp32c6_centro_01',
+  sensor_modelo: '[SFM-V1.7]',
+  sensor_conectado: false,
+  ultimo_ping: null
+};
+
 // Middleware de autenticación para administradores
 const authenticateAdmin = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -116,18 +125,28 @@ mqttClient.on('message', async (topic, message) => {
     // ── Estado del dispositivo / heartbeat / progreso de enrolamiento
     if (topic === 'centro/estado') {
       if (payload.online !== undefined) {
+        currentHardwareStatus = {
+          online: !!payload.online,
+          dispositivo: payload.dispositivo || 'esp32c6_centro_01',
+          sensor_modelo: payload.sensor_modelo || '[SFM-V1.7]',
+          sensor_conectado: payload.sensor_conectado !== undefined ? !!payload.sensor_conectado : !!payload.online,
+          ultimo_ping: new Date()
+        };
+
         await prisma.dispositivo.upsert({
           where:  { id: payload.dispositivo },
           update: { estado: payload.online ? 'online' : 'offline', ultimo_ping: new Date() },
           create: { id: payload.dispositivo, nombre: payload.dispositivo, estado: payload.online ? 'online' : 'offline' }
         });
-        console.log(`📡 Dispositivo: ${payload.dispositivo} → ${payload.online ? 'online' : 'offline'}`);
-        io.emit('device_status', payload);
+        console.log(`📡 Dispositivo: ${payload.dispositivo} → ${payload.online ? 'online' : 'offline'} | Sensor: ${currentHardwareStatus.sensor_conectado ? 'CONECTADO' : 'DESCONECTADO'}`);
+        io.emit('device_status', currentHardwareStatus);
 
       } else if (payload.estado === 'esperando_dedo') {
         currentEnrollStatus = {
           estado: "esperando_dedo",
           lectura: payload.lectura || 1,
+          postura: payload.postura || null,
+          mensaje: payload.mensaje || null,
           resultado: null,
           huella_id: payload.huella_id || null,
           postura: payload.postura || null,
@@ -135,7 +154,7 @@ mqttClient.on('message', async (topic, message) => {
           verificacion: payload.verificacion || 0,
           timestamp: Date.now()
         };
-        io.emit('enroll_progress', payload);
+        io.emit('enroll_progress', currentEnrollStatus);
 
       } else if (payload.cmd_ejecutado === 'abrir') {
         console.log(`🚪 Dispositivo ${payload.dispositivo} abrió la puerta`);
@@ -432,7 +451,15 @@ app.get('/api/stats', async (req, res) => {
       weekly.push({ day: weekDays[d.getDay()], date: d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }), count });
     }
 
-    res.json({ totalAccesses, failedAccesses, active, inactivos, histogram, weekly });
+    res.json({
+      totalAccesses,
+      failedAccesses,
+      active,
+      inactivos,
+      histogram,
+      weekly,
+      hardware: currentHardwareStatus
+    });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
@@ -664,6 +691,24 @@ app.get('/api/admin/enroll-status', authenticateAdmin, (req, res) => {
   res.json(currentEnrollStatus);
 });
 
+// Obtener detalles de un usuario con sus accesos recientes
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await prisma.usuario.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        accesos: {
+          orderBy: { timestamp: 'desc' },
+          take: 15
+        }
+      }
+    });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(user);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 // Enviar comando de enrolamiento al ESP32
 app.post('/api/devices/:id/enroll', authenticateAdmin, async (req, res) => {
   const { id } = req.params;
@@ -844,7 +889,8 @@ app.get('/api/health', (req, res) => {
     status:   'ok',
     time:     new Date().toISOString(),
     mqtt:     mqttClient.connected ? 'connected' : 'disconnected',
-    database: 'sqlite-local'
+    database: process.env.DATABASE_URL ? 'database-configured' : 'sqlite-local',
+    hardware: currentHardwareStatus
   });
 });
 
