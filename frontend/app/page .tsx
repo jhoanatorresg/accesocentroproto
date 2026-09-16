@@ -226,7 +226,9 @@ export default function AdminPage() {
       }
     });
 
-    return () => socket.disconnect();
+  return () => {
+   socket.disconnect();
+  };
   }, []);
 
   const capturarHuella = async () => {
