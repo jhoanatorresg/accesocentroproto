@@ -40,17 +40,30 @@ export default function Dashboard() {
 
   const fetchStats = () =>
     fetch(`${API_URL}/api/stats`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) return null;
+        return r.json();
+      })
       .then(data => {
-        setStats(data);
-        if (data.hardware) setHardwareStatus(data.hardware);
+        if (data && typeof data === 'object' && !data.error) {
+          setStats(prev => ({
+            ...prev,
+            ...data,
+            histogram: Array.isArray(data.histogram) ? data.histogram : prev.histogram,
+            weekly: Array.isArray(data.weekly) ? data.weekly : prev.weekly
+          }));
+          if (data.hardware) setHardwareStatus(data.hardware);
+        }
       })
       .catch(err => console.error('Stats error:', err));
 
   const fetchTodayAccesses = () =>
     fetch(`${API_URL}/api/accesses/today`)
-      .then(r => r.json())
-      .then(data => setEvents(data))
+      .then(async r => {
+        if (!r.ok) return [];
+        return r.json();
+      })
+      .then(data => setEvents(Array.isArray(data) ? data : []))
       .catch(err => console.error('Accesses error:', err));
 
   useEffect(() => {
@@ -197,10 +210,20 @@ export default function Dashboard() {
                           </div>
                           <div className="text-right">
                             <p className="text-white font-black text-lg font-mono">
-                                {new Date(ev.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {(() => {
+                                try {
+                                  const d = new Date(ev.timestamp);
+                                  return isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                } catch { return '--:--'; }
+                              })()}
                             </p>
                             <p className="text-slate-500 text-[10px] font-bold uppercase tracking-tighter">
-                                {new Date(ev.timestamp || Date.now()).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+                              {(() => {
+                                try {
+                                  const d = new Date(ev.timestamp);
+                                  return isNaN(d.getTime()) ? '' : d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+                                } catch { return ''; }
+                              })()}
                             </p>
                           </div>
                         </div>
